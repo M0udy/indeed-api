@@ -27,7 +27,12 @@ detection via **Claude Haiku**.
 
 Cross-cutting: JWT auth middleware, Zod input validation, centralised error
 handling, request logging with correlation ids, CORS allow-list, Helmet security
-headers, parameterised SQL (injection-safe), and a fully-typed codebase (no `any`).
+headers, rate limiting, parameterised SQL (injection-safe), and a fully-typed
+codebase (no `any`).
+
+**Interactive API docs** (OpenAPI 3.0): browse and try every endpoint at
+[`/api-docs`](http://localhost:4000/api-docs); the raw spec is at
+[`/api-docs.json`](http://localhost:4000/api-docs.json).
 
 ---
 

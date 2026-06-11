@@ -12,6 +12,7 @@ import { messagingRouter } from './routes/messaging.routes';
 import { paymentRouter } from './routes/payment.routes';
 import { adminRouter } from './routes/admin.routes';
 import { rateLimitRouter } from './routes/rateLimit.routes';
+import { swaggerRouter } from './routes/swagger.routes';
 import { healthRouter } from './routes/health.routes';
 
 /**
@@ -23,6 +24,10 @@ export function createApp(): Application {
 
   // Trust the reverse proxy so req.ip reflects the real client (for rate limiting).
   app.set('trust proxy', config.rateLimit.trustProxy);
+
+  // API docs are mounted first — before helmet's CSP and the rate limiter — so
+  // Swagger UI's assets load and the docs are never throttled.
+  app.use(swaggerRouter);
 
   // Security headers.
   app.use(helmet());
