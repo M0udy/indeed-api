@@ -15,7 +15,13 @@ detection via **Claude Haiku**.
 | **Auth** (OTP + JWT) | `POST /auth/request-otp`, `POST /auth/verify-otp`, `GET /auth/me`, `POST /auth/refresh` |
 | **Properties** (CRUD) | `POST /properties`, `GET /properties`, `GET /properties/:id`, `GET /properties/user/:userId`, `PUT /properties/:id`, `DELETE /properties/:id` |
 | **Uploads** | `POST /properties/:id/upload` (S3) |
+| **Deed OCR** | `POST /properties/:id/ocr` (Tesseract.js) |
+| **Identity verification** | `POST /properties/:id/verify-identity` (Idswyft NRC) |
+| **Fraud rules engine** | `POST /properties/:id/check-rules` (json-rules-engine, 12 rules) |
 | **Fraud detection** | `POST /properties/:id/analyze` (Claude Haiku) |
+| **Messaging** | `POST /messages`, `GET /conversations`, `GET /conversations/:id/messages`, `POST /properties/:id/message-seller` |
+| **Payments** | `POST /payments/stripe/checkout`, `POST /payments/webhook/stripe`, `POST /payments/mobile-money`, `GET /payments/invoice/:id` |
+| **Admin** | `GET /admin/analytics`, `GET/PATCH /admin/users`, `GET/PATCH /admin/fraud-cases`, `GET /admin/reports` |
 | **Health** | `GET /health` |
 
 Cross-cutting: JWT auth middleware, Zod input validation, centralised error
@@ -176,6 +182,106 @@ Content-Type: multipart/form-data  field: file   (jpg/png/webp/pdf, ≤15MB)
 → { "url": "https://…s3…", "property_id": "…", "kind": "image" | "document" }
 ```
 
+### Deed OCR
+
+```http
+POST /properties/:id/ocr           Authorization: Bearer <token>  (seller only)
+Content-Type: multipart/form-data  field: file   (jpg/png, ≤10MB)
+→ {
+    "deed_data": {
+      "deed_number": "ZM-2024-001234",
+      "property_address": "123 Main St, Lusaka",
+      "seller_name": "John Doe",
+      "buyer_name": "Jane Smith",
+      "transaction_date": "2024-03-15",
+      "amount_in_words": "One Million Kwacha Only",
+      "amount_in_numbers": 1000000,
+      "location_coordinates": { "latitude": -15.387526, "longitude": 28.322817 },
+      "confidence_score": 0.92,
+      "raw_text": "…"
+    },
+    "success": true
+  }
+```
+
+Extracted data is stored in `properties.deed_data` (JSONB). Each field is
+`null` when it could not be located; a `422` is returned if the image cannot be
+parsed at all (e.g. blank/blurry). OCR runs on [Tesseract.js](https://github.com/naptha/tesseract.js)
+(open-source, no external API) and is injected as an `OcrRecognizer`, so tests
+run without the native engine.
+
+### Identity verification
+
+```http
+POST /properties/:id/verify-identity   Authorization: Bearer <token>  (seller only)
+{ "seller_nrc": "ZM0123456789", "seller_photo_url": "https://…/face.jpg" }   # photo optional
+→ {
+    "identity": {
+      "verified": true,
+      "confidence_score": 0.95,
+      "nrc": "ZM0123456789",
+      "name": "John Banda",
+      "date_of_birth": "1988-04-12",
+      "photo_match": true,          // null when no photo supplied
+      "verified_at": "2026-06-11T…"
+    },
+    "success": true
+  }
+```
+
+Verifies a seller's Zambian NRC (`ZM` + 10 digits) via the **Idswyft** provider
+and stores the result in `properties.identity_data` (JSONB). Returns `422` when
+the NRC is malformed or the provider call fails. The provider client is injected
+(`IdswyftClient`), and a deterministic `MockIdswyftClient` is used automatically
+when `IDSWYFT_API_KEY` is empty (or `IDSWYFT_MOCK=true`), so dev/test never block
+on the external service. Configure `IDSWYFT_API_KEY` / `IDSWYFT_BASE_URL` for
+production.
+
+### Fraud rules engine
+
+```http
+POST /properties/:id/check-rules   Authorization: Bearer <token>  (seller only)
+{
+  "property":  { "market_value_usd": 100000, "deed_registry_match": true,
+                 "duplicate_listing_count": 0, "seller_dispute_count": 0 },
+  "ocr_data":  { "transaction_date": "2024-01-01", "amount_in_numbers": 100000, "buyer_name": "…" },
+  "identity":  { "verified": true, "nrc": "ZM0123456789" },
+  "satellite": { "matches_description": true }
+}
+→ {
+    "red_flags": ["rule_2_triggered", "rule_7_triggered"],
+    "rule_score": 16,
+    "details": { "rule_1": { "triggered": false, "weight": 8, "severity": "flag", … }, … },
+    "success": true
+  }
+```
+
+Runs 12 deterministic fraud rules via
+[json-rules-engine](https://github.com/CacheControl/json-rules-engine) and stores
+the result in `properties.rules_check` (JSONB). **All body sections are
+optional** — anything omitted falls back to data already stored on the property
+(its OCR `deed_data` and `identity_data`), so a bare `{}` body still evaluates
+what's on record.
+
+| # | Rule | Weight |
+|---|------|--------|
+| 1 | Deed number not found in registry | 8 |
+| 2 | Price unusually low (< 30% market) | 8 |
+| 3 | Price unusually high (> 300% market) | 8 |
+| 4 | Seller identity not verified | 8 |
+| 5 | Seller NRC invalid format | 8 |
+| 6 | Property listed multiple times simultaneously | 8 |
+| 7 | Deed date very old (> 10 years) | 8 |
+| 8 | Satellite image doesn't match description | 8 |
+| 9 | Buyer name missing | 8 |
+| 10 | Transaction amount ≠ stated price | 8 |
+| 11 | Location outside Lusaka metro | **0 (warning)** |
+| 12 | Seller has history of disputes | 8 |
+
+Each triggered rule adds its weight to `rule_score` (capped at 100). Rule 11 is a
+warning: it surfaces in `red_flags` and `details` but contributes 0 to the score.
+Rules whose inputs are unknown (e.g. no market value, no OCR data) do not fire.
+
 ### Fraud analysis
 
 ```http
@@ -195,6 +301,90 @@ POST /properties/:id/analyze       Authorization: Bearer <token>
 
 `fraud_score` → `verification_status`: `< 25` → `verified`, `25–60` → `caution`,
 `> 60` → `flagged`.
+
+### Messaging
+
+```http
+POST /properties/:id/message-seller   Authorization: Bearer <token>   (buyer)
+{ "content": "Hi, is this plot still available?" }
+→ { "conversation": { id, property_id, buyer_id, seller_id, … }, "message": { … } }   # starts/reuses a thread
+
+POST /messages                        Authorization: Bearer <token>
+{ "conversation_id": "…", "content": "Yes, it is." }
+→ { id, conversation_id, sender_id, content, read_at, created_at }
+
+GET /conversations                    Authorization: Bearer <token>
+→ [ { …conversation, "unread_count": 2, "last_message": "See you then" }, … ]   # newest activity first
+
+GET /conversations/:id/messages       Authorization: Bearer <token>
+→ [ { …message }, … ]   # oldest first; marks the other party's messages read
+```
+
+Threads are unique per `(property, buyer, seller)` triple (`getOrCreateConversation`
+upserts atomically). Every read/write path verifies the caller is a participant,
+so users can only see their own conversations. Opening a thread marks the other
+party's messages as read. Stored in the new `conversations` and `messages` tables.
+
+### Payments
+
+Plans (monthly, Zambian Kwacha): **Buyer K600** → `premium`, **Seller K1,200** →
+`professional`, **Bank K8,000** (+K400/fraud check) → `enterprise`. Pricing is
+server-authoritative — the client picks a plan, never an amount.
+
+```http
+POST /payments/stripe/checkout    Authorization: Bearer <token>
+{ "tier": "buyer" }
+→ { "sessionId": "cs_…", "url": "https://checkout.stripe.com/…" }   # redirect the user here
+
+POST /payments/webhook/stripe     (no auth — verified by Stripe-Signature)
+→ on checkout.session.completed: marks payment paid, grants the tier, sets a 30-day expiry
+
+POST /payments/mobile-money       Authorization: Bearer <token>
+{ "provider": "mtn", "amount": 600 }          # mtn | airtel | zamtel
+→ { id, status: "pending", provider: "mobile_money", … }   # confirmed out-of-band
+
+GET /payments/invoice/:id         Authorization: Bearer <token>   (owner only)
+→ JSON invoice (with html_content);  add ?format=pdf to stream a generated PDF
+```
+
+Tables: `payments` and `invoices`. Stripe and pdfkit power card checkout and PDF
+invoices; mobile money is recorded as `pending` for provider callback confirmation.
+
+**Webhook security:** the webhook route is mounted with a **raw-body** parser
+(before `express.json`) so the `Stripe-Signature` can be verified against the
+unparsed payload via `STRIPE_WEBHOOK_SECRET`. It is intentionally unauthenticated
+(Stripe authenticates via the signature). Configure `STRIPE_SECRET_KEY` /
+`STRIPE_WEBHOOK_SECRET`; until then, card endpoints return a clear
+"not configured" error and the rest of the API runs normally.
+
+### Admin dashboard
+
+All `/admin/*` routes require a valid JWT **and** an admin role. The `adminOnly`
+middleware reads `admin_role` from the database on every request (not the JWT),
+so promoting, demoting, or suspending an admin takes effect immediately.
+
+```http
+GET   /admin/analytics                 → { users, fraud_cases, properties, revenue }
+GET   /admin/users?tier=premium&suspended=false&search=jane&limit=50
+PATCH /admin/users/:id                  { "subscription_tier": "professional", "suspended": true, "admin_role": "admin" }
+GET   /admin/fraud-cases?status=open&severity=critical&min_score=50
+PATCH /admin/fraud-cases/:id            { "notes": "Confirmed fraudulent deed", "status": "resolved" }   # or "dismissed"
+GET   /admin/reports?type=users&format=csv     # type: users | fraud_cases | payments | revenue; format: csv | json
+```
+
+- **Analytics** aggregates users (total/verified/suspended/new + by-tier), fraud
+  cases (open/resolved/severity/avg score), properties, and completed revenue.
+- **Fraud cases** are fraud analyses joined with their property, with a severity
+  derived from `fraud_score` (`<25` low, `<50` medium, `<75` high, else critical)
+  and a workflow status (`open` → `resolved`/`dismissed` with admin notes).
+- **Reports** stream CSV (RFC-4180 quoting) or JSON as a file download.
+
+Make a user an admin directly in the database (no endpoint can self-promote
+without an existing admin):
+
+```sql
+UPDATE users SET admin_role = 'admin' WHERE phone = '+260...';
+```
 
 ### Error format
 

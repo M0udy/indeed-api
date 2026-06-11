@@ -17,6 +17,8 @@ function fakeUser(overrides: Partial<User> = {}): User {
     kyc_status: 'pending',
     subscription_tier: 'free',
     verification_badge: false,
+    admin_role: 'user',
+    suspended_at: null,
     created_at: new Date('2026-01-01T00:00:00Z'),
     updated_at: new Date('2026-01-01T00:00:00Z'),
     ...overrides,

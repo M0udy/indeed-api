@@ -73,6 +73,19 @@ export interface AppConfig {
     readonly expiryMinutes: number;
     readonly debugReturn: boolean;
   };
+  readonly idswyft: {
+    readonly apiKey: string;
+    readonly baseUrl: string;
+    /** When true, the identity service uses a deterministic local mock. */
+    readonly mock: boolean;
+  };
+  readonly stripe: {
+    readonly secretKey: string;
+    readonly webhookSecret: string;
+    readonly currency: string;
+    readonly successUrl: string;
+    readonly cancelUrl: string;
+  };
 }
 
 /**
@@ -122,6 +135,21 @@ function buildConfig(): AppConfig {
     otp: {
       expiryMinutes: integer('OTP_EXPIRY_MINUTES', 10),
       debugReturn: boolean('OTP_DEBUG_RETURN', false),
+    },
+    idswyft: {
+      // Optional: identity verification simply fails closed if unconfigured.
+      apiKey: optional('IDSWYFT_API_KEY', ''),
+      baseUrl: optional('IDSWYFT_BASE_URL', 'https://api.idswyft.com'),
+      // Auto-enable the mock when no key is set (so dev/test never block on it).
+      mock: boolean('IDSWYFT_MOCK', isTest || optional('IDSWYFT_API_KEY', '') === ''),
+    },
+    stripe: {
+      // Optional: payment endpoints return a clear error until configured.
+      secretKey: optional('STRIPE_SECRET_KEY', ''),
+      webhookSecret: optional('STRIPE_WEBHOOK_SECRET', ''),
+      currency: optional('STRIPE_CURRENCY', 'zmw'),
+      successUrl: optional('STRIPE_SUCCESS_URL', 'http://localhost:3000/billing/success'),
+      cancelUrl: optional('STRIPE_CANCEL_URL', 'http://localhost:3000/billing/cancel'),
     },
   };
 }

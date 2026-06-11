@@ -1,9 +1,12 @@
 import { query } from '../config/database';
 import type {
   CreatePropertyInput,
+  DeedData,
   FraudRecommendation,
+  IdentityVerification,
   Property,
   PropertyFilters,
+  RuleEvaluation,
   UpdatePropertyInput,
   VerificationStatus,
 } from '../types';
@@ -200,6 +203,45 @@ export class PropertyService {
         WHERE id = $1
         RETURNING *`,
       [id, url],
+    );
+    return rows[0] ?? null;
+  }
+
+  /** Persist OCR-extracted deed data onto the listing. */
+  async attachDeedData(id: string, deedData: DeedData): Promise<Property | null> {
+    const { rows } = await query<Property>(
+      `UPDATE properties
+          SET deed_data = $2::jsonb, updated_at = now()
+        WHERE id = $1
+        RETURNING *`,
+      [id, JSON.stringify(deedData)],
+    );
+    return rows[0] ?? null;
+  }
+
+  /** Persist a seller identity-verification result onto the listing. */
+  async attachIdentityData(
+    id: string,
+    identity: IdentityVerification,
+  ): Promise<Property | null> {
+    const { rows } = await query<Property>(
+      `UPDATE properties
+          SET identity_data = $2::jsonb, updated_at = now()
+        WHERE id = $1
+        RETURNING *`,
+      [id, JSON.stringify(identity)],
+    );
+    return rows[0] ?? null;
+  }
+
+  /** Persist a fraud rules-engine evaluation onto the listing. */
+  async attachRulesCheck(id: string, evaluation: RuleEvaluation): Promise<Property | null> {
+    const { rows } = await query<Property>(
+      `UPDATE properties
+          SET rules_check = $2::jsonb, updated_at = now()
+        WHERE id = $1
+        RETURNING *`,
+      [id, JSON.stringify(evaluation)],
     );
     return rows[0] ?? null;
   }

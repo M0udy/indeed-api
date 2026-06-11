@@ -57,6 +57,13 @@ export class ConflictError extends AppError {
   }
 }
 
+/** 422 — request was well-formed but could not be processed. */
+export class UnprocessableEntityError extends AppError {
+  constructor(message = 'The request could not be processed', details?: unknown) {
+    super(message, 422, 'UNPROCESSABLE_ENTITY', details);
+  }
+}
+
 /** 402 — feature gated behind a paid subscription tier. */
 export class PaymentRequiredError extends AppError {
   constructor(message = 'Upgrade your subscription to use this feature') {

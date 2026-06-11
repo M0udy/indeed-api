@@ -13,3 +13,6 @@ process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
 process.env.AFRICA_TALKING_API_KEY = 'test';
 process.env.AFRICA_TALKING_USERNAME = 'sandbox';
 process.env.OTP_EXPIRY_MINUTES = '10';
+// Webhook secret is set so constructWebhookEvent reaches signature verification;
+// STRIPE_SECRET_KEY is deliberately left unset so the "not configured" path is testable.
+process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';

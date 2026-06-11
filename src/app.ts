@@ -6,6 +6,12 @@ import { requestLogger } from './middleware/requestLogger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { authRouter } from './routes/auth.routes';
 import { propertyRouter } from './routes/property.routes';
+import { ocrRouter } from './routes/ocr.routes';
+import { identityRouter } from './routes/identity.routes';
+import { rulesRouter } from './routes/rules.routes';
+import { messagingRouter } from './routes/messaging.routes';
+import { paymentRouter } from './routes/payment.routes';
+import { adminRouter } from './routes/admin.routes';
 import { healthRouter } from './routes/health.routes';
 
 /**
@@ -33,6 +39,11 @@ export function createApp(): Application {
   };
   app.use(cors(corsOptions));
 
+  // The Stripe webhook needs the RAW body to verify its signature, so it must
+  // be parsed as a Buffer BEFORE the JSON parser runs. body-parser marks the
+  // request handled, so express.json() below skips this path.
+  app.use('/payments/webhook/stripe', express.raw({ type: '*/*', limit: '1mb' }));
+
   // Body parsing (JSON + urlencoded) with sane size limits.
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
@@ -47,6 +58,12 @@ export function createApp(): Application {
   app.use('/health', healthRouter);
   app.use('/auth', authRouter);
   app.use('/properties', propertyRouter);
+  app.use('/properties', ocrRouter);
+  app.use('/properties', identityRouter);
+  app.use('/properties', rulesRouter);
+  app.use('/', messagingRouter);
+  app.use('/payments', paymentRouter);
+  app.use('/admin', adminRouter);
 
   // 404 + centralised error handling (must be last).
   app.use(notFoundHandler);
