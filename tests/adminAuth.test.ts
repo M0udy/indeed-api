@@ -1,8 +1,9 @@
-import { adminOnly } from '../src/middleware/adminAuth';
+import { adminOnly, type AdminRequest } from '../src/middleware/adminAuth';
+import { createAuthenticate } from '../src/middleware/auth';
+import type { AuthService } from '../src/services/auth.service';
 import type { UserService } from '../src/services/user.service';
-import type { AdminRequest } from '../src/middleware/adminAuth';
 import { ForbiddenError, UnauthorizedError } from '../src/utils/errors';
-import type { User } from '../src/types';
+import type { JwtPayload, User } from '../src/types';
 import { mockRequest } from './helpers';
 
 function fakeUser(overrides: Partial<User> = {}): User {
@@ -22,54 +23,66 @@ function fakeUser(overrides: Partial<User> = {}): User {
   };
 }
 
-function authedReq(): AdminRequest {
+/** A request as it looks AFTER authenticate has attached the user. */
+function reqWithUser(user: User | undefined): AdminRequest {
   const req = mockRequest() as AdminRequest;
   req.auth = { sub: 'user-1', phone: '+260123456789', tier: 'enterprise' };
+  if (user) req.user = user;
   return req;
 }
 
 describe('adminOnly', () => {
-  it('allows an admin through and attaches the admin user', async () => {
-    const users = { findById: jest.fn().mockResolvedValue(fakeUser()) } as unknown as UserService;
-    const req = authedReq();
+  it('allows an admin through (reusing req.user) and attaches adminUser', () => {
+    const req = reqWithUser(fakeUser({ admin_role: 'admin' }));
     const next = jest.fn();
 
-    await adminOnly(users)(req, {} as never, next);
+    adminOnly()(req, {} as never, next);
 
     expect(next).toHaveBeenCalledWith();
     expect(req.adminUser?.id).toBe('user-1');
   });
 
-  it('rejects a non-admin with ForbiddenError', async () => {
-    const users = {
-      findById: jest.fn().mockResolvedValue(fakeUser({ admin_role: 'user' })),
-    } as unknown as UserService;
+  it('rejects a non-admin with ForbiddenError', () => {
+    const req = reqWithUser(fakeUser({ admin_role: 'user' }));
     const next = jest.fn();
 
-    await adminOnly(users)(authedReq(), {} as never, next);
+    adminOnly()(req, {} as never, next);
 
-    expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
+    expect(next.mock.calls[0][0]).toBeInstanceOf(ForbiddenError);
   });
 
-  it('rejects a suspended admin', async () => {
-    const users = {
-      findById: jest.fn().mockResolvedValue(fakeUser({ suspended_at: new Date() })),
-    } as unknown as UserService;
+  it('treats a missing req.user as 401 (mis-wired route)', () => {
+    const req = reqWithUser(undefined);
     const next = jest.fn();
 
-    await adminOnly(users)(authedReq(), {} as never, next);
+    adminOnly()(req, {} as never, next);
 
-    expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
+    expect(next.mock.calls[0][0]).toBeInstanceOf(UnauthorizedError);
   });
 
-  it('rejects an unauthenticated request', async () => {
-    const users = { findById: jest.fn() } as unknown as UserService;
-    const req = mockRequest() as AdminRequest; // no req.auth
-    const next = jest.fn();
+  it('loads the user exactly once across authenticate + adminOnly', async () => {
+    const payload: JwtPayload = { sub: 'user-1', phone: '+260123456789', tier: 'enterprise' };
+    const auth = { verifyToken: jest.fn().mockResolvedValue(payload) } as unknown as AuthService;
+    const users = {
+      findById: jest.fn().mockResolvedValue(fakeUser({ admin_role: 'admin' })),
+    } as unknown as UserService;
 
-    await adminOnly(users)(req, {} as never, next);
+    const authenticate = createAuthenticate({ auth, users });
+    const req = mockRequest({ headers: { authorization: 'Bearer t' } }) as AdminRequest;
 
-    expect(next).toHaveBeenCalledWith(expect.any(UnauthorizedError));
-    expect(users.findById).not.toHaveBeenCalled();
+    // 1) authenticate loads + attaches the user.
+    const next1 = jest.fn();
+    await authenticate(req, {} as never, next1);
+    expect(next1).toHaveBeenCalledWith();
+    expect(req.user?.id).toBe('user-1');
+
+    // 2) adminOnly reuses it — no second lookup.
+    const next2 = jest.fn();
+    adminOnly()(req, {} as never, next2);
+    expect(next2).toHaveBeenCalledWith();
+    expect(req.adminUser?.id).toBe('user-1');
+
+    // The DB was hit exactly once for the whole request.
+    expect(users.findById).toHaveBeenCalledTimes(1);
   });
 });

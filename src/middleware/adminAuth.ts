@@ -1,12 +1,11 @@
 import type { NextFunction, Response } from 'express';
-import { userService, UserService } from '../services/user.service';
 import { ForbiddenError, UnauthorizedError } from '../utils/errors';
 import type { AuthenticatedRequest } from './auth';
 import type { User } from '../types';
 
 /**
  * Request that has passed admin authorization. After {@link adminOnly} runs,
- * `req.adminUser` is the full, verified admin user record.
+ * `req.adminUser` is the verified admin user record.
  */
 export interface AdminRequest extends AuthenticatedRequest {
   adminUser?: User;
@@ -15,25 +14,21 @@ export interface AdminRequest extends AuthenticatedRequest {
 /**
  * Require that the authenticated user is an admin.
  *
- * Runs AFTER {@link authenticate}. The admin role is read from the database on
- * every request (not from the JWT), so revoking or suspending an admin takes
- * effect immediately without waiting for token expiry. Suspended accounts are
- * rejected even if they hold the admin role.
+ * Runs AFTER {@link authenticate}, which has already loaded the user (rejecting
+ * suspended accounts) and attached it as `req.user`. This middleware therefore
+ * reuses that record instead of issuing a second database lookup — the user is
+ * loaded exactly once per request.
  *
- * The user lookup is injected so the guard can be unit-tested without a DB.
+ * If `req.user` is missing the route is mis-wired (adminOnly placed before
+ * authenticate); we fail closed with a 401 rather than assume anything.
  */
-export function adminOnly(users: UserService = userService) {
-  return async (req: AdminRequest, _res: Response, next: NextFunction): Promise<void> => {
+export function adminOnly() {
+  return (req: AdminRequest, _res: Response, next: NextFunction): void => {
     try {
-      if (!req.auth) {
-        throw new UnauthorizedError();
-      }
-      const user = await users.findById(req.auth.sub);
+      const user = req.user;
       if (!user) {
-        throw new UnauthorizedError('User not found');
-      }
-      if (user.suspended_at !== null) {
-        throw new ForbiddenError('Account is suspended');
+        // Defensive: should be unreachable when wired as [authenticate, adminOnly()].
+        throw new UnauthorizedError('Authentication required');
       }
       if (user.admin_role !== 'admin') {
         throw new ForbiddenError('Admin access required');
