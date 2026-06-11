@@ -5,6 +5,7 @@ import { config } from './config/env';
 import { requestLogger } from './middleware/requestLogger';
 import { generalRateLimit } from './middleware/rateLimit';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { startScheduler } from './utils/scheduler';
 import { authRouter } from './routes/auth.routes';
 import { propertyRouter } from './routes/property.routes';
 import { ocrRouter } from './routes/ocr.routes';
@@ -79,6 +80,12 @@ export function createApp(): Application {
   // 404 + centralised error handling (must be last).
   app.use(notFoundHandler);
   app.use(errorHandler);
+
+  // Start background jobs (subscription expiry, …) on boot. Skipped under test
+  // so importing the app for supertest stays free of timers / DB side effects.
+  if (config.nodeEnv !== 'test') {
+    startScheduler();
+  }
 
   return app;
 }
