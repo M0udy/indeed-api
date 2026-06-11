@@ -45,6 +45,7 @@ function fakeProperty(overrides: Partial<Property> = {}): Property {
     deed_data: {},
     identity_data: {},
     rules_check: {},
+    satellite_data: {},
     created_at: new Date('2026-01-01T00:00:00Z'),
     updated_at: new Date('2026-01-01T00:00:00Z'),
     ...overrides,

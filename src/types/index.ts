@@ -62,6 +62,8 @@ export interface Property {
   identity_data: IdentityVerification | Record<string, never>;
   /** Fraud rules-engine evaluation. `{}` until checked. */
   rules_check: RuleEvaluation | Record<string, never>;
+  /** Satellite location-verification result. `{}` until verified. */
+  satellite_data: SatelliteVerification | Record<string, never>;
   created_at: Date;
   updated_at: Date;
 }
@@ -394,6 +396,28 @@ export interface GeneratedReport {
   filename: string;
   contentType: string;
   content: string;
+}
+
+// ── Satellite verification ───────────────────────────────────
+
+/**
+ * Result of verifying a property's location against satellite imagery (the
+ * image is compared to the listing description via Claude vision). Stored in
+ * `properties.satellite_data` and also fed into the fraud rules engine as
+ * {@link SatelliteData}.
+ */
+export interface SatelliteVerification {
+  verified: boolean;
+  confidence_score: number; // 0–1
+  image_url: string | null;
+  /** Whether the imagery matched the description (mirrors `verified`). */
+  matches_description: boolean;
+  /** Claude's reasoning for the verdict. */
+  analysis: string | null;
+  latitude: number;
+  longitude: number;
+  /** ISO-8601 timestamp of when verification ran. */
+  verified_at: string;
 }
 
 // ── JWT ──────────────────────────────────────────────────────

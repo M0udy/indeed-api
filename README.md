@@ -17,6 +17,7 @@ detection via **Claude Haiku**.
 | **Uploads** | `POST /properties/:id/upload` (S3) |
 | **Deed OCR** | `POST /properties/:id/ocr` (Tesseract.js) |
 | **Identity verification** | `POST /properties/:id/verify-identity` (Idswyft NRC) |
+| **Satellite verification** | `POST /properties/:id/verify-satellite` (imagery + Claude vision) |
 | **Fraud rules engine** | `POST /properties/:id/check-rules` (json-rules-engine, 12 rules) |
 | **Fraud detection** | `POST /properties/:id/analyze` (Claude Haiku) |
 | **Messaging** | `POST /messages`, `GET /conversations`, `GET /conversations/:id/messages`, `POST /properties/:id/message-seller` |
@@ -236,6 +237,35 @@ the NRC is malformed or the provider call fails. The provider client is injected
 when `IDSWYFT_API_KEY` is empty (or `IDSWYFT_MOCK=true`), so dev/test never block
 on the external service. Configure `IDSWYFT_API_KEY` / `IDSWYFT_BASE_URL` for
 production.
+
+### Satellite verification
+
+```http
+POST /properties/:id/verify-satellite   Authorization: Bearer <token>  (seller only)
+{ "latitude": -15.4, "longitude": 28.3, "description": "Vacant 1-acre residential plot" }   # description optional
+→ {
+    "satellite": {
+      "verified": true,
+      "confidence_score": 0.88,
+      "image_url": "https://…/staticmap?center=-15.4,28.3&…",   // API key stripped
+      "matches_description": true,
+      "analysis": "Open land consistent with a vacant plot",
+      "latitude": -15.4, "longitude": 28.3,
+      "verified_at": "2026-06-11T…"
+    },
+    "success": true
+  }
+```
+
+Fetches a satellite image for the coordinates and asks **Claude vision** whether
+the imagery matches the listing description; stores the result in
+`properties.satellite_data` (JSONB) and returns `422` if imagery is unavailable.
+The image source and the vision step are both injected (`SatelliteImageProvider`
+/ `SatelliteVisionAnalyzer`), so tests run offline. A deterministic mock provider
+auto-activates when `SATELLITE_API_KEY` is empty; the default real provider uses
+Google Static Maps satellite imagery (point `SATELLITE_IMAGE_URL_TEMPLATE` at a
+Google Earth Engine thumbnail for production). The API key is stripped from the
+stored `image_url` so it never leaks into the DB or API responses.
 
 ### Fraud rules engine
 

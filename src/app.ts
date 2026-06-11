@@ -9,6 +9,7 @@ import { propertyRouter } from './routes/property.routes';
 import { ocrRouter } from './routes/ocr.routes';
 import { identityRouter } from './routes/identity.routes';
 import { rulesRouter } from './routes/rules.routes';
+import { satelliteRouter } from './routes/satellite.routes';
 import { messagingRouter } from './routes/messaging.routes';
 import { paymentRouter } from './routes/payment.routes';
 import { adminRouter } from './routes/admin.routes';
@@ -61,6 +62,7 @@ export function createApp(): Application {
   app.use('/properties', ocrRouter);
   app.use('/properties', identityRouter);
   app.use('/properties', rulesRouter);
+  app.use('/properties', satelliteRouter);
   app.use('/', messagingRouter);
   app.use('/payments', paymentRouter);
   app.use('/admin', adminRouter);

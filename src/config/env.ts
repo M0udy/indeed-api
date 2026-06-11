@@ -86,6 +86,13 @@ export interface AppConfig {
     readonly successUrl: string;
     readonly cancelUrl: string;
   };
+  readonly satellite: {
+    readonly apiKey: string;
+    /** URL template with {lat}/{lng}/{apiKey} placeholders for the image source. */
+    readonly urlTemplate: string;
+    /** When true, a deterministic local mock image is used instead of a real fetch. */
+    readonly mock: boolean;
+  };
 }
 
 /**
@@ -150,6 +157,17 @@ function buildConfig(): AppConfig {
       currency: optional('STRIPE_CURRENCY', 'zmw'),
       successUrl: optional('STRIPE_SUCCESS_URL', 'http://localhost:3000/billing/success'),
       cancelUrl: optional('STRIPE_CANCEL_URL', 'http://localhost:3000/billing/cancel'),
+    },
+    satellite: {
+      apiKey: optional('SATELLITE_API_KEY', ''),
+      // Default targets Google Static Maps satellite imagery (swap for an Earth
+      // Engine thumbnail URL in production — the provider is the only thing to change).
+      urlTemplate: optional(
+        'SATELLITE_IMAGE_URL_TEMPLATE',
+        'https://maps.googleapis.com/maps/api/staticmap?center={lat},{lng}&zoom=18&size=640x640&maptype=satellite&key={apiKey}',
+      ),
+      // Auto-mock when no key is set so dev/test never block on imagery.
+      mock: boolean('SATELLITE_MOCK', isTest || optional('SATELLITE_API_KEY', '') === ''),
     },
   };
 }

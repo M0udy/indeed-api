@@ -182,6 +182,12 @@ export const reportQuerySchema = z.object({
   format: z.enum(['csv', 'json']).optional().default('csv'),
 });
 
+export const verifySatelliteSchema = z.object({
+  latitude: z.coerce.number().min(-90).max(90),
+  longitude: z.coerce.number().min(-180).max(180),
+  description: z.string().trim().max(20_000).optional(),
+});
+
 /** A UUID path parameter. */
 export const uuidSchema = z.string().uuid('Invalid id format');
 
@@ -201,3 +207,4 @@ export type AdminUserUpdateBody = z.infer<typeof adminUserUpdateSchema>;
 export type AdminFraudCaseFiltersQuery = z.infer<typeof adminFraudCaseFiltersSchema>;
 export type ResolveFraudCaseBody = z.infer<typeof resolveFraudCaseSchema>;
 export type ReportQuery = z.infer<typeof reportQuerySchema>;
+export type VerifySatelliteBody = z.infer<typeof verifySatelliteSchema>;

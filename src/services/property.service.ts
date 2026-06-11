@@ -7,6 +7,7 @@ import type {
   Property,
   PropertyFilters,
   RuleEvaluation,
+  SatelliteVerification,
   UpdatePropertyInput,
   VerificationStatus,
 } from '../types';
@@ -242,6 +243,21 @@ export class PropertyService {
         WHERE id = $1
         RETURNING *`,
       [id, JSON.stringify(evaluation)],
+    );
+    return rows[0] ?? null;
+  }
+
+  /** Persist a satellite location-verification result onto the listing. */
+  async attachSatelliteData(
+    id: string,
+    data: SatelliteVerification,
+  ): Promise<Property | null> {
+    const { rows } = await query<Property>(
+      `UPDATE properties
+          SET satellite_data = $2::jsonb, updated_at = now()
+        WHERE id = $1
+        RETURNING *`,
+      [id, JSON.stringify(data)],
     );
     return rows[0] ?? null;
   }

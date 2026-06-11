@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS properties (
   deed_data           JSONB NOT NULL DEFAULT '{}'::jsonb,         -- OCR-extracted deed fields
   identity_data       JSONB NOT NULL DEFAULT '{}'::jsonb,         -- seller NRC verification result
   rules_check         JSONB NOT NULL DEFAULT '{}'::jsonb,         -- fraud rules-engine evaluation
+  satellite_data      JSONB NOT NULL DEFAULT '{}'::jsonb,         -- satellite location verification
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -58,6 +59,8 @@ ALTER TABLE properties
   ADD COLUMN IF NOT EXISTS identity_data JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE properties
   ADD COLUMN IF NOT EXISTS rules_check JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE properties
+  ADD COLUMN IF NOT EXISTS satellite_data JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE INDEX IF NOT EXISTS idx_properties_seller_id  ON properties (seller_id);
 CREATE INDEX IF NOT EXISTS idx_properties_location   ON properties (location);
