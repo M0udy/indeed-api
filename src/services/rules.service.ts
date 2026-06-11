@@ -290,13 +290,38 @@ export class RulesService {
       nrc_invalid: nrcInvalid,
       duplicate_count: property.duplicate_listing_count ?? 0,
       deed_age_years: this.computeDeedAgeYears(ocrData?.transaction_date ?? null),
-      satellite_mismatch: satelliteData?.matches_description === false,
+      satellite_mismatch: this.resolveSatelliteMismatch(satelliteData, property.satellite_data),
       // Only assessable when OCR data is present.
       buyer_name_missing: ocrData ? !isNonEmpty(ocrData.buyer_name) : false,
       amount_mismatch: this.computeAmountMismatch(property.price_usd, ocrData?.amount_in_numbers),
       outside_lusaka: isNonEmpty(property.location) ? !isLusakaMetro(property.location) : false,
       dispute_count: property.seller_dispute_count ?? 0,
     };
+  }
+
+  /**
+   * Decide whether rule 8 (satellite mismatch) should fire.
+   *
+   * An explicit `satelliteData` argument wins (lets a caller override). Otherwise
+   * the value is read from the property's stored `satellite_data` — so a prior
+   * satellite verification feeds rule 8 automatically, with no body input.
+   * Unknown status (no verification run) never triggers.
+   */
+  private resolveSatelliteMismatch(
+    satelliteData: SatelliteData | null,
+    storedSatellite: RulesPropertyInput['satellite_data'],
+  ): boolean {
+    if (satelliteData && satelliteData.matches_description !== null) {
+      return satelliteData.matches_description === false;
+    }
+    if (
+      storedSatellite &&
+      'matches_description' in storedSatellite &&
+      typeof storedSatellite.matches_description === 'boolean'
+    ) {
+      return storedSatellite.matches_description === false;
+    }
+    return false;
   }
 
   /** Price ÷ market value; returns a neutral 1 when either is unknown. */

@@ -83,6 +83,8 @@ export class RulesController {
         ? { seller_dispute_count: ctx.seller_dispute_count }
         : {}),
       ...(ctx.seller_nrc !== undefined ? { seller_nrc: ctx.seller_nrc } : {}),
+      // Stored satellite verification feeds rule 8 automatically.
+      satellite_data: property.satellite_data,
     };
   }
 

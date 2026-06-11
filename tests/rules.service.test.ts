@@ -151,7 +151,7 @@ describe('RulesService.evaluateRules', () => {
       expect(r.red_flags).toEqual(['rule_7_triggered']);
     });
 
-    it('rule 8 — satellite mismatch', async () => {
+    it('rule 8 — satellite mismatch (explicit param)', async () => {
       const r = await service.evaluateRules(
         cleanProperty(),
         cleanOcr(),
@@ -159,6 +159,42 @@ describe('RulesService.evaluateRules', () => {
         cleanSatellite({ matches_description: false }),
       );
       expect(r.red_flags).toEqual(['rule_8_triggered']);
+    });
+
+    it('rule 8 — fires automatically from stored satellite_data (no body input)', async () => {
+      const r = await service.evaluateRules(
+        cleanProperty({
+          satellite_data: { matches_description: false } as RulesPropertyInput['satellite_data'],
+        }),
+        cleanOcr(),
+        cleanIdentity(),
+        null, // caller supplies nothing
+      );
+      expect(r.red_flags).toEqual(['rule_8_triggered']);
+    });
+
+    it('rule 8 — does NOT fire when stored satellite_data matches', async () => {
+      const r = await service.evaluateRules(
+        cleanProperty({
+          satellite_data: { matches_description: true } as RulesPropertyInput['satellite_data'],
+        }),
+        cleanOcr(),
+        cleanIdentity(),
+        null,
+      );
+      expect(r.red_flags).toEqual([]);
+    });
+
+    it('rule 8 — explicit param overrides stored satellite_data', async () => {
+      const r = await service.evaluateRules(
+        cleanProperty({
+          satellite_data: { matches_description: false } as RulesPropertyInput['satellite_data'],
+        }),
+        cleanOcr(),
+        cleanIdentity(),
+        cleanSatellite({ matches_description: true }), // override says it matches
+      );
+      expect(r.red_flags).toEqual([]);
     });
 
     it('rule 9 — buyer name missing', async () => {

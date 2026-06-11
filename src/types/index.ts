@@ -177,6 +177,8 @@ export interface RulesPropertyInput {
   /** Count of prior disputes recorded against the seller. */
   seller_dispute_count?: number | null;
   seller_nrc?: string | null;
+  /** Stored satellite verification; rule 8 reads `matches_description` from here. */
+  satellite_data?: SatelliteVerification | Record<string, never> | null;
 }
 
 /** Deed fields the rules engine reads (subset of {@link DeedData}). */
