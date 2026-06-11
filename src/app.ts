@@ -3,6 +3,7 @@ import cors, { type CorsOptions } from 'cors';
 import helmet from 'helmet';
 import { config } from './config/env';
 import { requestLogger } from './middleware/requestLogger';
+import { generalRateLimit } from './middleware/rateLimit';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { authRouter } from './routes/auth.routes';
 import { propertyRouter } from './routes/property.routes';
@@ -13,6 +14,7 @@ import { satelliteRouter } from './routes/satellite.routes';
 import { messagingRouter } from './routes/messaging.routes';
 import { paymentRouter } from './routes/payment.routes';
 import { adminRouter } from './routes/admin.routes';
+import { rateLimitRouter } from './routes/rateLimit.routes';
 import { healthRouter } from './routes/health.routes';
 
 /**
@@ -21,6 +23,9 @@ import { healthRouter } from './routes/health.routes';
  */
 export function createApp(): Application {
   const app = express();
+
+  // Trust the reverse proxy so req.ip reflects the real client (for rate limiting).
+  app.set('trust proxy', config.rateLimit.trustProxy);
 
   // Security headers.
   app.use(helmet());
@@ -52,6 +57,9 @@ export function createApp(): Application {
   // Per-request logging + correlation id.
   app.use(requestLogger);
 
+  // Global rate limit: 100 requests per IP per minute (skips /health and preflight).
+  app.use(generalRateLimit);
+
   // Routes.
   app.get('/', (_req: Request, res: Response) => {
     res.json({ name: 'InDeed API', version: '1.0.0', status: 'running' });
@@ -66,6 +74,7 @@ export function createApp(): Application {
   app.use('/', messagingRouter);
   app.use('/payments', paymentRouter);
   app.use('/admin', adminRouter);
+  app.use('/', rateLimitRouter);
 
   // 404 + centralised error handling (must be last).
   app.use(notFoundHandler);

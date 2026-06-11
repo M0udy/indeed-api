@@ -71,6 +71,16 @@ export class PaymentRequiredError extends AppError {
   }
 }
 
+/** 429 — too many requests; client should retry after `retryAfter` seconds. */
+export class RateLimitError extends AppError {
+  public readonly retryAfter: number;
+
+  constructor(retryAfter: number) {
+    super(`Too many requests. Try again in ${retryAfter} seconds.`, 429, 'RATE_LIMIT_EXCEEDED');
+    this.retryAfter = retryAfter;
+  }
+}
+
 /** 502 — an upstream third-party service failed. */
 export class UpstreamServiceError extends AppError {
   constructor(message = 'An upstream service failed', details?: unknown) {

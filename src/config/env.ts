@@ -93,6 +93,12 @@ export interface AppConfig {
     /** When true, a deterministic local mock image is used instead of a real fetch. */
     readonly mock: boolean;
   };
+  readonly rateLimit: {
+    /** When set, rate-limit counters live in Redis (shared across instances). */
+    readonly redisUrl: string;
+    /** Number of proxy hops to trust for client IP resolution. */
+    readonly trustProxy: number;
+  };
 }
 
 /**
@@ -157,6 +163,10 @@ function buildConfig(): AppConfig {
       currency: optional('STRIPE_CURRENCY', 'zmw'),
       successUrl: optional('STRIPE_SUCCESS_URL', 'http://localhost:3000/billing/success'),
       cancelUrl: optional('STRIPE_CANCEL_URL', 'http://localhost:3000/billing/cancel'),
+    },
+    rateLimit: {
+      redisUrl: optional('REDIS_URL', ''),
+      trustProxy: integer('TRUST_PROXY_HOPS', 1),
     },
     satellite: {
       apiKey: optional('SATELLITE_API_KEY', ''),

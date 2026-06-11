@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { propertyController } from '../controllers/property.controller';
 import { authenticate } from '../middleware/auth';
+import { analyzeRateLimit } from '../middleware/rateLimit';
 import { validateBody, validateQuery } from '../middleware/validate';
 import { asyncHandler } from '../utils/asyncHandler';
 import {
@@ -54,4 +55,10 @@ propertyRouter.post(
   upload.single('file'),
   asyncHandler(propertyController.upload),
 );
-propertyRouter.post('/:id/analyze', authenticate, asyncHandler(propertyController.analyze));
+// 10 fraud analyses per user per day.
+propertyRouter.post(
+  '/:id/analyze',
+  authenticate,
+  analyzeRateLimit,
+  asyncHandler(propertyController.analyze),
+);

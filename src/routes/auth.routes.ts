@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authController } from '../controllers/auth.controller';
 import { authenticate } from '../middleware/auth';
+import { otpRateLimit } from '../middleware/rateLimit';
 import { validateBody } from '../middleware/validate';
 import { asyncHandler } from '../utils/asyncHandler';
 import { requestOtpSchema, verifyOtpSchema } from '../utils/validators';
@@ -11,6 +12,8 @@ export const authRouter = Router();
 authRouter.post(
   '/request-otp',
   validateBody(requestOtpSchema),
+  // 5 OTP requests per phone number per hour.
+  otpRateLimit,
   asyncHandler(authController.requestOtp),
 );
 

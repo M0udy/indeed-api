@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { MulterError } from 'multer';
-import { AppError, isAppError } from '../utils/errors';
+import { AppError, isAppError, RateLimitError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import type { TracedRequest } from './requestLogger';
 
@@ -10,6 +10,7 @@ interface ErrorResponseBody {
     code: string;
     message: string;
     details?: unknown;
+    retryAfter?: number;
     requestId?: string;
   };
 }
@@ -36,6 +37,14 @@ export function errorHandler(
   _next: NextFunction,
 ): void {
   const requestId = req.id;
+
+  // Rate-limit errors carry a retry-after that we expose both as a header and
+  // in the body, matching the documented 429 response shape.
+  if (err instanceof RateLimitError) {
+    res.setHeader('Retry-After', String(err.retryAfter));
+    respond(res, err.statusCode, err.code, err.message, undefined, requestId, err.retryAfter);
+    return;
+  }
 
   // Our own typed errors → their declared status code.
   if (isAppError(err)) {
@@ -67,9 +76,11 @@ function respond(
   message: string,
   details: unknown,
   requestId: string | undefined,
+  retryAfter?: number,
 ): void {
   const body: ErrorResponseBody = { error: { code, message } };
   if (details !== undefined) body.error.details = details;
+  if (retryAfter !== undefined) body.error.retryAfter = retryAfter;
   if (requestId !== undefined) body.error.requestId = requestId;
   res.status(status).json(body);
 }

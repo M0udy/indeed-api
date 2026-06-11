@@ -416,6 +416,34 @@ without an existing admin):
 UPDATE users SET admin_role = 'admin' WHERE phone = '+260...';
 ```
 
+### Rate limiting
+
+Three tiers, enforced by fixed-window counters (in-memory by default, or Redis
+when `REDIS_URL` is set so limits are shared across instances):
+
+| Scope | Limit | Keyed by |
+|-------|-------|----------|
+| `POST /auth/request-otp` | 5 / hour | phone number |
+| `POST /properties/:id/analyze` | 10 / day | user id |
+| All other endpoints (global) | 100 / minute | client IP |
+
+`GET /health` and CORS preflight are exempt. Every response carries
+`X-RateLimit-Limit/Remaining/Reset`; a `429` adds a `Retry-After` header and the
+body below. `GET /rate-limit/test` (5/min) is a low-limit endpoint for smoke-testing.
+
+```json
+{
+  "error": {
+    "code": "RATE_LIMIT_EXCEEDED",
+    "message": "Too many requests. Try again in 30 seconds.",
+    "retryAfter": 30
+  }
+}
+```
+
+Client IP comes from `req.ip`, so set `TRUST_PROXY_HOPS` to your proxy depth
+(Vercel/Render/Fly = 1) for correct attribution behind a load balancer.
+
 ### Error format
 
 Every error returns a consistent envelope:
