@@ -97,9 +97,18 @@ CREATE TABLE IF NOT EXISTS otp_tokens (
   phone      VARCHAR(20) NOT NULL,
   otp        VARCHAR(6) NOT NULL,
   consumed   BOOLEAN NOT NULL DEFAULT false,
+  -- Brute-force tracking. The runtime throttle (middleware/otpThrottle.ts) is the
+  -- authoritative per-phone guard; these columns persist attempt state for a
+  -- future DB/Redis-backed throttle that survives restarts and spans instances.
+  failed_attempts INTEGER NOT NULL DEFAULT 0,
+  locked_until    TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '10 minutes')
 );
+
+-- Backfill brute-force columns on pre-existing databases.
+ALTER TABLE otp_tokens ADD COLUMN IF NOT EXISTS failed_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE otp_tokens ADD COLUMN IF NOT EXISTS locked_until    TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_otp_tokens_phone ON otp_tokens (phone);
 

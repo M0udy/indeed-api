@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authController } from '../controllers/auth.controller';
 import { authenticate } from '../middleware/auth';
 import { otpRateLimit } from '../middleware/rateLimit';
+import { otpThrottle } from '../middleware/otpThrottle';
 import { validateBody } from '../middleware/validate';
 import { asyncHandler } from '../utils/asyncHandler';
 import { requestOtpSchema, verifyOtpSchema } from '../utils/validators';
@@ -20,6 +21,8 @@ authRouter.post(
 authRouter.post(
   '/verify-otp',
   validateBody(verifyOtpSchema),
+  // Brute-force guard: lock a phone after 3 failed attempts for 15 minutes.
+  otpThrottle(),
   asyncHandler(authController.verifyOtp),
 );
 

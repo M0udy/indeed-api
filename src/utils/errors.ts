@@ -75,8 +75,8 @@ export class PaymentRequiredError extends AppError {
 export class RateLimitError extends AppError {
   public readonly retryAfter: number;
 
-  constructor(retryAfter: number) {
-    super(`Too many requests. Try again in ${retryAfter} seconds.`, 429, 'RATE_LIMIT_EXCEEDED');
+  constructor(retryAfter: number, message?: string) {
+    super(message ?? `Too many requests. Try again in ${retryAfter} seconds.`, 429, 'RATE_LIMIT_EXCEEDED');
     this.retryAfter = retryAfter;
   }
 }
