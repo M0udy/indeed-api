@@ -1,25 +1,38 @@
 import { query } from '../config/database';
+import { claudeService, ClaudeService } from './claude.service';
+import { rulesService, RulesService } from './rules.service';
 import type {
   CreatePropertyInput,
   DeedData,
+  FraudAnalysisResult,
   FraudRecommendation,
   IdentityVerification,
   Property,
   PropertyFilters,
   RuleEvaluation,
+  RulesIdentityInput,
+  RulesOcrInput,
+  RulesPropertyInput,
   SatelliteVerification,
   UpdatePropertyInput,
+  User,
   VerificationStatus,
 } from '../types';
 
 /**
- * Data access for the `properties` table.
+ * Data access for the `properties` table, plus the combined fraud-analysis
+ * orchestration (rules engine + Claude).
  *
  * Every method uses parameterised SQL — column lists are built from a fixed
  * allow-list, never from raw user input — so the query builder is injection-safe
- * even for the dynamic UPDATE and search filters.
+ * even for the dynamic UPDATE and search filters. The rules/Claude collaborators
+ * are constructor-injected for testability.
  */
 export class PropertyService {
+  constructor(
+    private readonly claude: ClaudeService = claudeService,
+    private readonly rules: RulesService = rulesService,
+  ) {}
   /** Insert a new listing owned by `sellerId`. */
   async create(sellerId: string, input: CreatePropertyInput): Promise<Property> {
     const { rows } = await query<Property>(
@@ -262,11 +275,121 @@ export class PropertyService {
     return rows[0] ?? null;
   }
 
+  /**
+   * Run the combined fraud analysis for a property and persist the result.
+   *
+   * Both signals are computed and averaged:
+   *   - `rule_score`   from the deterministic rules engine (using the property's
+   *     stored OCR / identity / satellite data), and
+   *   - `claude_score` from the Claude Haiku analysis of the listing.
+   *
+   * `fraud_score = round((rule_score + claude_score) / 2)`, which is stored on
+   * the listing along with the merged red flags and a derived verification
+   * status, and an audit row is written.
+   */
+  async analyzeProperty(property: Property, seller: User): Promise<FraudAnalysisResult> {
+    // 1. Deterministic rules engine (reads stored OCR/identity/satellite data).
+    const evaluation = await this.rules.evaluateRules(
+      this.toRulesProperty(property),
+      this.toRulesOcr(property),
+      this.toRulesIdentity(property),
+      null,
+    );
+    const ruleScore = evaluation.rule_score;
+
+    // 2. Claude analysis of the listing + seller.
+    const verdict = await this.claude.analyzeProperty(property, {
+      name: seller.name,
+      kyc_status: seller.kyc_status,
+      verification_badge: seller.verification_badge,
+    });
+    const claudeScore = verdict.fraud_score;
+
+    // 3. Combine: mean of the two sub-scores.
+    const finalScore = Math.round((ruleScore + claudeScore) / 2);
+    const verificationStatus = scoreToStatus(finalScore);
+    const redFlags = dedupe([...verdict.red_flags, ...evaluation.red_flags]);
+    const fraudFlags = flagsToObject(redFlags);
+
+    // 4. Persist combined result + audit row.
+    await this.applyFraudResult(property.id, finalScore, fraudFlags, verificationStatus);
+    await this.recordAnalysis(
+      property.id,
+      finalScore,
+      redFlags,
+      verdict.recommendation,
+      verdict.reasoning,
+    );
+
+    return {
+      fraud_score: finalScore,
+      rule_score: ruleScore,
+      claude_score: claudeScore,
+      red_flags: redFlags,
+      recommendation: verdict.recommendation,
+      verification_status: verificationStatus,
+    };
+  }
+
+  /** Build the rules-engine property input from a stored listing. */
+  private toRulesProperty(property: Property): RulesPropertyInput {
+    return {
+      id: property.id,
+      price_usd: property.price_usd === null ? null : Number(property.price_usd),
+      deed_number: property.deed_number,
+      location: property.location,
+      satellite_data: property.satellite_data,
+    };
+  }
+
+  /** Build the rules-engine OCR input from stored deed data, if present. */
+  private toRulesOcr(property: Property): RulesOcrInput | null {
+    const deed = asStored<DeedData>(property.deed_data);
+    if (!deed) return null;
+    return {
+      deed_number: deed.deed_number,
+      transaction_date: deed.transaction_date,
+      amount_in_numbers: deed.amount_in_numbers,
+      buyer_name: deed.buyer_name,
+    };
+  }
+
+  /** Build the rules-engine identity input from stored verification, if present. */
+  private toRulesIdentity(property: Property): RulesIdentityInput | null {
+    const identity = asStored<IdentityVerification>(property.identity_data);
+    if (!identity) return null;
+    return { verified: identity.verified, nrc: identity.nrc };
+  }
+
   /** Delete a listing. Returns true if a row was removed. */
   async delete(id: string): Promise<boolean> {
     const { rowCount } = await query(`DELETE FROM properties WHERE id = $1`, [id]);
     return (rowCount ?? 0) > 0;
   }
+}
+
+/** Map a 0–100 fraud score to a verification status bucket. */
+function scoreToStatus(score: number): VerificationStatus {
+  if (score < 25) return 'verified';
+  if (score <= 60) return 'caution';
+  return 'flagged';
+}
+
+/** Turn a red-flag array into the `{ flag: true }` JSONB object. */
+function flagsToObject(redFlags: string[]): Record<string, boolean> {
+  const flags: Record<string, boolean> = {};
+  for (const flag of redFlags) flags[flag] = true;
+  return flags;
+}
+
+/** De-duplicate a string array, preserving first-seen order. */
+function dedupe(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+/** Treat an empty JSONB object (`{}`) as "no stored value". */
+function asStored<T extends object>(value: T | Record<string, never>): T | null {
+  return Object.keys(value).length > 0 ? (value as T) : null;
 }
 
 export const propertyService = new PropertyService();

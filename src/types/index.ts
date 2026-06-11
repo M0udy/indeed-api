@@ -483,7 +483,12 @@ export interface PropertyDetail {
 
 /** Result of a fraud analysis run, as returned to clients. */
 export interface FraudAnalysisResult {
+  /** Combined score: the mean of the rules-engine and Claude scores (0–100). */
   fraud_score: number | null;
+  /** Rules-engine sub-score that fed the combined score. */
+  rule_score: number | null;
+  /** Claude sub-score that fed the combined score. */
+  claude_score: number | null;
   red_flags: string[];
   recommendation: FraudRecommendation | null;
   verification_status: VerificationStatus;

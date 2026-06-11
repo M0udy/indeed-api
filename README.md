@@ -322,15 +322,19 @@ POST /properties/:id/analyze       Authorization: Bearer <token>
 
 # Premium / professional / enterprise:
 → {
-    "fraud_score": 45,
-    "red_flags": ["price unusually low", "deed not verified"],
+    "fraud_score": 50,          // combined = round((rule_score + claude_score) / 2)
+    "rule_score": 40,           // deterministic rules engine (uses stored OCR/identity/satellite)
+    "claude_score": 60,         // Claude Haiku analysis of the listing
+    "red_flags": ["price unusually low", "rule_2_triggered"],
     "recommendation": "review",
     "verification_status": "caution"
   }
 ```
 
-`fraud_score` → `verification_status`: `< 25` → `verified`, `25–60` → `caution`,
-`> 60` → `flagged`.
+`analyze` runs **both** the rules engine and Claude and averages them into the
+stored `fraud_score`. `fraud_score` → `verification_status`: `< 25` → `verified`,
+`25–60` → `caution`, `> 60` → `flagged`. (`POST /properties/:id/check-rules`
+still exists to run the rules engine on its own.)
 
 ### Messaging
 

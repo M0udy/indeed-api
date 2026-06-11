@@ -2,9 +2,8 @@ import { PropertyController } from '../src/controllers/property.controller';
 import type { PropertyService } from '../src/services/property.service';
 import type { UserService } from '../src/services/user.service';
 import type { S3Service } from '../src/services/s3.service';
-import type { ClaudeService } from '../src/services/claude.service';
 import type { AuthenticatedRequest } from '../src/middleware/auth';
-import type { ClaudeFraudVerdict, Property, User } from '../src/types';
+import type { FraudAnalysisResult, Property, User } from '../src/types';
 import { ForbiddenError } from '../src/utils/errors';
 import { mockRequest, mockResponse } from './helpers';
 
@@ -65,12 +64,7 @@ describe('PropertyController', () => {
       const properties = {
         create: jest.fn().mockResolvedValue(created),
       } as unknown as PropertyService;
-      const controller = new PropertyController(
-        properties,
-        {} as UserService,
-        {} as S3Service,
-        {} as ClaudeService,
-      );
+      const controller = new PropertyController(properties, {} as UserService, {} as S3Service);
 
       const req = authedRequest();
       const res = mockResponse({ body: { title: 'Plot in Thornpark', price_usd: 15000 } });
@@ -88,12 +82,7 @@ describe('PropertyController', () => {
       const properties = {
         findById: jest.fn().mockResolvedValue(fakeProperty({ seller_id: 'someone-else' })),
       } as unknown as PropertyService;
-      const controller = new PropertyController(
-        properties,
-        {} as UserService,
-        {} as S3Service,
-        {} as ClaudeService,
-      );
+      const controller = new PropertyController(properties, {} as UserService, {} as S3Service);
 
       const req = authedRequest('seller-1');
       const res = mockResponse({ body: { title: 'Hijacked title' } });
@@ -106,34 +95,37 @@ describe('PropertyController', () => {
     it('returns a locked result for free-tier users', async () => {
       const properties = {
         findById: jest.fn().mockResolvedValue(fakeProperty()),
+        analyzeProperty: jest.fn(),
       } as unknown as PropertyService;
       const users = {
         findById: jest.fn().mockResolvedValue(fakeUser({ subscription_tier: 'free' })),
       } as unknown as UserService;
-      const claude = { analyzeProperty: jest.fn() } as unknown as ClaudeService;
-      const controller = new PropertyController(properties, users, {} as S3Service, claude);
+      const controller = new PropertyController(properties, users, {} as S3Service);
 
       const req = authedRequest('seller-1', 'free');
       const res = mockResponse();
 
       await controller.analyze(req, res);
 
-      expect(claude.analyzeProperty).not.toHaveBeenCalled();
+      expect(properties.analyzeProperty).not.toHaveBeenCalled();
       expect(res._status).toBe(200);
-      expect(res._json).toMatchObject({ fraud_score: null, locked: true });
+      expect(res._json).toMatchObject({ fraud_score: null, rule_score: null, claude_score: null, locked: true });
     });
 
-    it('runs full analysis and persists results for premium users', async () => {
-      const verdict: ClaudeFraudVerdict = {
-        fraud_score: 45,
-        red_flags: ['price unusually low', 'deed not verified'],
+    it('delegates to the combined analysis for premium users', async () => {
+      const combined: FraudAnalysisResult = {
+        fraud_score: 50,
+        rule_score: 40,
+        claude_score: 60,
+        red_flags: ['price unusually low', 'rule_2_triggered'],
         recommendation: 'review',
-        reasoning: 'Price is well below market for the stated size.',
+        verification_status: 'caution',
       };
+      const property = fakeProperty();
+      const seller = fakeUser({ id: 'seller-1' });
       const properties = {
-        findById: jest.fn().mockResolvedValue(fakeProperty()),
-        applyFraudResult: jest.fn().mockResolvedValue(fakeProperty()),
-        recordAnalysis: jest.fn().mockResolvedValue(undefined),
+        findById: jest.fn().mockResolvedValue(property),
+        analyzeProperty: jest.fn().mockResolvedValue(combined),
       } as unknown as PropertyService;
       const users = {
         findById: jest
@@ -142,31 +134,22 @@ describe('PropertyController', () => {
             Promise.resolve(
               id === 'premium-user'
                 ? fakeUser({ id: 'premium-user', subscription_tier: 'premium' })
-                : fakeUser(),
+                : seller,
             ),
           ),
       } as unknown as UserService;
-      const claude = {
-        analyzeProperty: jest.fn().mockResolvedValue(verdict),
-      } as unknown as ClaudeService;
 
-      const controller = new PropertyController(properties, users, {} as S3Service, claude);
+      const controller = new PropertyController(properties, users, {} as S3Service);
       const req = authedRequest('premium-user', 'premium');
       const res = mockResponse();
 
       await controller.analyze(req, res);
 
-      expect(claude.analyzeProperty).toHaveBeenCalledTimes(1);
-      expect(properties.applyFraudResult).toHaveBeenCalledWith(
-        'prop-1',
-        45,
-        { 'price unusually low': true, 'deed not verified': true },
-        'caution',
-      );
-      expect(properties.recordAnalysis).toHaveBeenCalledTimes(1);
+      expect(properties.analyzeProperty).toHaveBeenCalledWith(property, seller);
       expect(res._json).toMatchObject({
-        fraud_score: 45,
-        recommendation: 'review',
+        fraud_score: 50,
+        rule_score: 40,
+        claude_score: 60,
         verification_status: 'caution',
       });
     });

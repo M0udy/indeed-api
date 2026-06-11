@@ -2,7 +2,6 @@ import type { Request, Response } from 'express';
 import { propertyService, PropertyService } from '../services/property.service';
 import { userService, UserService } from '../services/user.service';
 import { s3Service, S3Service } from '../services/s3.service';
-import { claudeService, ClaudeService } from '../services/claude.service';
 import { ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from '../utils/errors';
 import { toPropertyDetail, toPropertySummary } from '../utils/mappers';
 import type { AuthenticatedRequest } from '../middleware/auth';
@@ -12,7 +11,6 @@ import type {
   FraudAnalysisResult,
   PropertyFilters,
   UpdatePropertyInput,
-  VerificationStatus,
 } from '../types';
 import type {
   CreatePropertyBody,
@@ -32,7 +30,6 @@ export class PropertyController {
     private readonly properties: PropertyService = propertyService,
     private readonly users: UserService = userService,
     private readonly s3: S3Service = s3Service,
-    private readonly claude: ClaudeService = claudeService,
   ) {}
 
   /** POST /properties — create a listing owned by the authenticated user. */
@@ -157,6 +154,8 @@ export class PropertyController {
     if (!PAID_TIERS.has(requester.subscription_tier)) {
       const locked: FraudAnalysisResult = {
         fraud_score: null,
+        rule_score: null,
+        claude_score: null,
         red_flags: [],
         recommendation: null,
         verification_status: property.verification_status,
@@ -169,30 +168,8 @@ export class PropertyController {
     const seller = await this.users.findById(property.seller_id);
     if (!seller) throw new NotFoundError('Seller not found');
 
-    const verdict = await this.claude.analyzeProperty(property, {
-      name: seller.name,
-      kyc_status: seller.kyc_status,
-      verification_badge: seller.verification_badge,
-    });
-
-    const verificationStatus = this.scoreToStatus(verdict.fraud_score);
-    const fraudFlags = this.flagsToObject(verdict.red_flags);
-
-    await this.properties.applyFraudResult(id, verdict.fraud_score, fraudFlags, verificationStatus);
-    await this.properties.recordAnalysis(
-      id,
-      verdict.fraud_score,
-      verdict.red_flags,
-      verdict.recommendation,
-      verdict.reasoning,
-    );
-
-    const result: FraudAnalysisResult = {
-      fraud_score: verdict.fraud_score,
-      red_flags: verdict.red_flags,
-      recommendation: verdict.recommendation,
-      verification_status: verificationStatus,
-    };
+    // Combined rules-engine + Claude analysis, persisted and returned.
+    const result = await this.properties.analyzeProperty(property, seller);
     res.status(200).json(result);
   };
 
@@ -247,20 +224,6 @@ export class PropertyController {
       ...(body.price_usd !== undefined ? { price_usd: body.price_usd } : {}),
       ...(body.deed_number !== undefined ? { deed_number: body.deed_number } : {}),
     };
-  }
-
-  /** Map a 0–100 fraud score to a verification status bucket. */
-  private scoreToStatus(score: number): VerificationStatus {
-    if (score < 25) return 'verified';
-    if (score <= 60) return 'caution';
-    return 'flagged';
-  }
-
-  /** Turn the red-flag array into the `{ flag: true }` JSONB object. */
-  private flagsToObject(redFlags: string[]): Record<string, boolean> {
-    const flags: Record<string, boolean> = {};
-    for (const flag of redFlags) flags[flag] = true;
-    return flags;
   }
 }
 
